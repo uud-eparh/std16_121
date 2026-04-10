@@ -78,27 +78,32 @@ def make_curl(sql):
 def load_stage_gpfdist(table_name):
     def _load():
         hook = PostgresHook(postgres_conn_id=DB_CONN)
-        conn = hook.get_conn()
-        cursor = conn.cursor()
+        sql = f"""
+            TRUNCATE TABLE {DB_SCHEMA}.stg_{table_name};
+            INSERT INTO {DB_SCHEMA}.stg_{table_name}
+            SELECT * FROM {DB_SCHEMA}.ext_{table_name};
+        """
         try:
-            conn.autocommit = False
-            cursor.execute("BEGIN;")
-            cursor.execute(f"TRUNCATE TABLE {DB_SCHEMA}.stg_{table_name};")
-            cursor.execute(f"""
-                INSERT INTO {DB_SCHEMA}.stg_{table_name}
-                SELECT * FROM {DB_SCHEMA}.ext_{table_name};
-            """)
-            conn.commit()
-            logger.info(f"{DB_SCHEMA}.stg_{table_name} загружена")
-            return f"SUCCESS: {DB_SCHEMA}.stg_{table_name}"
+            hook.run(sql)
+            logger.info(f"stg_{table_name} загружена")
+            return f"✅ SUCCESS: stg_{table_name}"
         except Exception as e:
-            conn.rollback()
-            error_msg = f"Ошибка загрузки {DB_SCHEMA}.stg_{table_name}: {str(e)}"
-            logger.error(error_msg)
-            raise Exception(error_msg)
-        finally:
-            cursor.close()
-            conn.close()
+            error_msg = f"❌ Ошибка загрузки stg_{table_name}: {str(e)}"
+            logger.info(error_msg)
+            
+            try:
+                send_email(
+                    to=[ALERT_EMAIL],
+                    subject=f'Airflow Warning: Ошибка загрузки stg_{table_name}',
+                    html_content=f'<p><b>Таблица:</b> stg_{table_name}</p>'
+                                 f'<p><b>Ошибка:</b> {str(e)}</p>'
+                                 f'<p><b>Действие:</b> Загрузка пропущена</p>'
+                )
+            except:
+                pass
+            
+            return f"⏸️ ПРОПУЩЕНА: stg_{table_name}"
+    
     return _load
 
 
@@ -117,10 +122,10 @@ def load_stage_pxf(table_name):
             """)
             conn.commit()
             logger.info(f"{DB_SCHEMA}.stg_{table_name} загружена")
-            return f"SUCCESS: {DB_SCHEMA}.stg_{table_name}"
+            return f"✅ УСПЕХ: {DB_SCHEMA}.stg_{table_name}"
         except Exception as e:
             conn.rollback()
-            error_msg = f"Ошибка загрузки {DB_SCHEMA}.stg_{table_name}: {str(e)}"
+            error_msg = f"❌ Ошибка загрузки {DB_SCHEMA}.stg_{table_name}: {str(e)}"
             logger.error(error_msg)
             raise Exception(error_msg)
         finally:
