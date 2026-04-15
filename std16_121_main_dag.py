@@ -139,8 +139,8 @@ def load_stage_pxf(table_name):
 # =====================================================
 
 SQL_COMMANDS = [
-    "DROP TABLE IF EXISTS {schema}.ch_checks",
-    "CREATE TABLE {schema}.ch_checks ENGINE = MergeTree ORDER BY store AS SELECT * FROM {schema}.ch_checks_ext",
+    "DROP TABLE IF EXISTS {schema}.ch_bills",
+    "CREATE TABLE {schema}.ch_bills ENGINE = MergeTree ORDER BY store AS SELECT * FROM {schema}.ch_bills_ext",
     "DROP TABLE IF EXISTS {schema}.ch_traffic",
     "CREATE TABLE {schema}.ch_traffic ENGINE = MergeTree ORDER BY plant AS SELECT * FROM {schema}.ch_traffic_ext",
     "DROP TABLE IF EXISTS {schema}.ch_coupons",
@@ -152,8 +152,8 @@ SQL_COMMANDS = [
 ]
 
 DISTR_COMMANDS = [
-    "DROP TABLE IF EXISTS {schema}.ch_checks_distr",
-    "CREATE TABLE {schema}.ch_checks_distr AS {schema}.ch_checks ENGINE = Distributed('default_cluster', '{schema}', 'ch_checks', rand())",
+    "DROP TABLE IF EXISTS {schema}.ch_bills_distr",
+    "CREATE TABLE {schema}.ch_bills_distr AS {schema}.ch_bills ENGINE = Distributed('default_cluster', '{schema}', 'ch_bills', rand())",
     "DROP TABLE IF EXISTS {schema}.ch_traffic_distr",
     "CREATE TABLE {schema}.ch_traffic_distr AS {schema}.ch_traffic ENGINE = Distributed('default_cluster', '{schema}', 'ch_traffic', rand())",
     "DROP TABLE IF EXISTS {schema}.ch_coupons_distr",
@@ -169,15 +169,16 @@ DISTR_COMMANDS = [
 # =====================================================
 
 # GPFDIST таблицы (CSV через gpfdist)
-GPFDIST_TABLES = ['coupons', 'price', 'product', 'promo_types', 'promos', 'region', 'stores', 'checks']
+GPFDIST_TABLES = ['coupons', 'price', 'product', 'promo_types', 'promos', 'region', 'stores']
 
 # PXF таблицы (PostgreSQL через PXF) - без bills_head и bills_item
 PXF_TABLES = ['channel', 'plan', 'sales', 'traffic']
 
-# Загрузка bills_head и bills_item через отдельную функцию
+# Загрузка bills, bills_head и bills_item через отдельную функцию
 BILLS_LOAD_SQL = [
     ("bills_head", "SELECT delta_upsert_load('std16_121.ext_bills_head', 'std16_121.stg_bills_head', 'billnum', false, 'calday');"),
     ("bills_item", "SELECT delta_upsert_load('std16_121.ext_bills_item', 'std16_121.stg_bills_item', 'billnum, billitem', false, 'calday');"),
+    ("bills", "SELECT delta_upsert_load('std16_121.ext_bills', 'std16_121.stg_bills', 'billnum, billitem', false, 'calday');"),
 ]
 
 # =====================================================
@@ -240,28 +241,7 @@ PREP_TABLES = {
         FROM {{schema}}.stg_traffic
         DISTRIBUTED BY (plant, date);
         COMMIT;
-    """,
-    'checks': f"""
-        BEGIN;
-        DROP TABLE IF EXISTS {{schema}}.prep_checks;
-        CREATE TABLE {{schema}}.prep_checks AS
-        SELECT 
-            receipt_item,
-            billnum,
-            billitem,
-            material,
-            store,
-            TO_DATE(day::text, 'YYYYMMDD') as day,
-            month,
-            netval_with_vat,
-            qty,
-            REPLACE(netval, ',', '.')::numeric as netval,
-            REPLACE(tax, ',', '.')::numeric as tax,
-            check_count
-        FROM {{schema}}.stg_checks
-        DISTRIBUTED BY (billnum, billitem);
-        COMMIT;
-    """    
+    """
 }
 
 # =====================================================
@@ -279,13 +259,13 @@ DIMENSION_TABLES = {
 }
 
 FACT_TABLES = {
+    'bills': {'source': f'{DB_SCHEMA}.stg_bills', 'key': 'billnum', 'cursor': 'calday'},
     'bills_head': {'source': f'{DB_SCHEMA}.stg_bills_head', 'key': 'billnum', 'cursor': 'calday'},
     'bills_item': {'source': f'{DB_SCHEMA}.stg_bills_item', 'key': 'billnum, billitem', 'cursor': 'calday'},
     'plan': {'source': f'{DB_SCHEMA}.stg_plan', 'key': 'date, region, matdirec, distr_chan', 'cursor': 'date'},
     'sales': {'source': f'{DB_SCHEMA}.stg_sales', 'key': 'check_nm, check_pos', 'cursor': 'date'},
     'coupons': {'source': f'{DB_SCHEMA}.prep_coupons', 'key': 'coupon_number', 'cursor': 'coupon_date'},
     'traffic': {'source': f'{DB_SCHEMA}.prep_traffic', 'key': 'plant, date, time, frame_id', 'cursor': 'date'},
-    'checks': {'source': f'{DB_SCHEMA}.prep_checks', 'key': 'billnum, billitem', 'cursor': 'day'},
 }
 
 # =====================================================
