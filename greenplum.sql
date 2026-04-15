@@ -1146,15 +1146,15 @@ BEGIN
     sql_text := '
         CREATE OR REPLACE VIEW std16_121.v_plan_fact AS
         SELECT 
-            pf.date,
+            --pf.date,
             pf.region_code,
             r.txt as region_name,
             pf.matdirec,
             pf.distr_chan,
             c.txtsh as channel_name,
-            pf.plan_quantity,
-            pf.fact_quantity,
-            pf.percent_complete,
+            SUM(pf.plan_quantity) as plan_quantity,      -- сумма за месяц
+            SUM(pf.fact_quantity) as fact_quantity,      -- сумма за месяц
+            ROUND(100.0 * SUM(pf.fact_quantity) / NULLIF(SUM(pf.plan_quantity), 0), 2) as percent_complete,  -- процент за месяц
             pf.top_material_code,
             pr.brand as top_material_brand,
             pr.txt as top_material_name,
@@ -1165,8 +1165,10 @@ BEGIN
         LEFT JOIN std16_121.product pr ON pf.top_material_code = pr.material
         LEFT JOIN std16_121.price p ON pf.top_material_code = p.material 
                                     AND pf.region_code = p.region 
-                                    AND pf.distr_chan = p.distr_chan
-        ORDER BY pf.date, pf.region_code, pf.matdirec, pf.distr_chan';
+                                    -- AND pf.distr_chan = p.distr_chan
+        GROUP BY pf.region_code, r.txt, pf.matdirec, pf.distr_chan, c.txtsh, 
+         pf.top_material_code, pr.brand, pr.txt, p.price
+        ORDER BY pf.region_code, pf.matdirec, pf.distr_chan';
     
     EXECUTE sql_text;
     
@@ -1208,7 +1210,7 @@ LEFT JOIN std16_121.channel c ON pf.distr_chan = c.distr_chan
 LEFT JOIN std16_121.product pr ON pf.top_material_code = pr.material
 LEFT JOIN std16_121.price p ON pf.top_material_code = p.material 
                             AND pf.region_code = p.region 
-                            AND pf.distr_chan = p.distr_chan
+                            -- AND pf.distr_chan = p.distr_chan
 ORDER BY pf.date, pf.region_code, pf.matdirec, pf.distr_chan;
 
 DO $$
